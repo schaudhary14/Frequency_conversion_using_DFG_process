@@ -1,9 +1,11 @@
+from typing import Optional
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 from scipy.linalg import expm
 
-def Kraus_DFG(params=None):
+
+def Kraus_DFG(params=None, initial_state: Optional[np.ndarray] = None):
     """
     Compute finite-time Kraus operators for chi(2) DFG model.
 
@@ -11,6 +13,9 @@ def Kraus_DFG(params=None):
     ----------
     params : dict
         Dictionary of parameters. If None, defaults are used.
+    initial_state: np.ndarray, optional
+        Optional initial state, first mode must be signal
+        second one output mode
 
     Returns
     -------
@@ -24,21 +29,28 @@ def Kraus_DFG(params=None):
         Trace error values across time steps
     Trace_rho : np.ndarray
         Trace of rho(t) vs. reconstructed via Kraus
+
+    Notes
+    -----
+    - If `initial_state` is not given a synthetic initial state is created
+    - `initial_state` is given the initial corresponding dimensions in
+      the params `Ns`, `Nc` should reflect the dimensions of the given state
     """
 
     import time
+
     t0 = time.time()
 
     # Default parameters
     if params is None or len(params) == 0:
         params = {
-            "Ns": 7,            # Fock cutoff for mode a
-            "Nc": 7,            # Fock cutoff for mode b
+            "Ns": 7,  # Fock cutoff for mode a
+            "Nc": 7,  # Fock cutoff for mode b
             "hbar": 1.0,
             "zi": 1.0,
             "kappa_a": 0.02,
             "kappa_b": 0.02,
-            #"t": 2.0 * np.pi,
+            # "t": 2.0 * np.pi,
             "tol": 1e-12,
             "coh": 0,
             "signal_photon": 1,
@@ -52,7 +64,7 @@ def Kraus_DFG(params=None):
     zi = params["zi"]
     kappa_a = params["kappa_a"]
     kappa_b = params["kappa_b"]
-    #tprop = params["t"]
+    # tprop = params["t"]
     tol = params["tol"]
 
     coh = params["coh"]
@@ -60,7 +72,7 @@ def Kraus_DFG(params=None):
     convsn_photon = params["convsn_photon"]
     time_grid = params["time"]
 
-    #time_grid = np.linspace(tprop/100, tprop, 100)
+    # time_grid = np.linspace(tprop/100, tprop, 100)
 
     # Dimensions
     ds = Ns + 1
@@ -68,22 +80,31 @@ def Kraus_DFG(params=None):
     d = ds * dc
 
     # Initial state
-    if coh == 1:
-        alpha = signal_photon
-        n = np.arange(ds)
-        coh_s = np.exp(-0.5*np.abs(alpha)**2) * (alpha**n / np.sqrt(np.math.factorial(n)))
-        Fock_c = np.zeros(dc); Fock_c[convsn_photon] = 1
-        psi0 = np.kron(coh_s, Fock_c)
-        rho0 = np.outer(psi0, psi0.conj())
+    if not initial_state:
+        if coh == 1:
+            alpha = signal_photon
+            n = np.arange(ds)
+            coh_s = np.exp(-0.5 * np.abs(alpha) ** 2) * (
+                alpha**n / np.sqrt(np.math.factorial(n))
+            )
+            Fock_c = np.zeros(dc)
+            Fock_c[convsn_photon] = 1
+            psi0 = np.kron(coh_s, Fock_c)
+            rho0 = np.outer(psi0, psi0.conj())
+        else:
+            Fock_s = np.zeros(ds)
+            Fock_s[signal_photon] = 1
+            Fock_c = np.zeros(dc)
+            Fock_c[convsn_photon] = 1
+            psi0 = np.kron(Fock_s, Fock_c)
+            rho0 = np.outer(psi0, psi0.conj())
     else:
-        Fock_s = np.zeros(ds); Fock_s[signal_photon] = 1
-        Fock_c = np.zeros(dc); Fock_c[convsn_photon] = 1
-        psi0 = np.kron(Fock_s, Fock_c)
-        rho0 = np.outer(psi0, psi0.conj())
+        assert isinstance(initial_state, np.ndarray)
+        rho0 = initial_state
 
     # Annihilation operator
     def ann(N):
-        return np.diag(np.sqrt(np.arange(1, N+1)), 1)
+        return np.diag(np.sqrt(np.arange(1, N + 1)), 1)
 
     a_s_single = ann(Ns)
     a_c_single = ann(Nc)
@@ -98,16 +119,16 @@ def Kraus_DFG(params=None):
     a_c_d = a_c.conj().T
 
     # Hamiltonian
-    H = 1j*hbar*(np.conj(zi)*a_c_d@a_s - zi*a_s_d@a_c)
+    H = 1j * hbar * (np.conj(zi) * a_c_d @ a_s - zi * a_s_d @ a_c)
 
     # Lindblad jump operators
-    L1 = np.sqrt(kappa_a)*a_s
-    L2 = np.sqrt(kappa_b)*a_c
+    L1 = np.sqrt(kappa_a) * a_s
+    L2 = np.sqrt(kappa_b) * a_c
     Lj = [L1, L2]
 
     # Liouvillian
     Id = np.eye(d)
-    LH = -1j/hbar * (np.kron(H, Id) - np.kron(Id, H.T))
+    LH = -1j / hbar * (np.kron(H, Id) - np.kron(Id, H.T))
 
     Ldis = np.zeros((d**2, d**2), dtype=complex)
     for L in Lj:
@@ -164,7 +185,8 @@ def Kraus_DFG(params=None):
 
         s_population_K = np.trace(rho_t_Kraus @ (a_s_d @ a_s))
         c_population_K = np.trace(rho_t_Kraus @ (a_c_d @ a_c))
-        Populations.append([s_population, c_population, s_population_K, c_population_K])
+        Populations.append([s_population, c_population,
+                           s_population_K, c_population_K])
 
     runtime = time.time() - t0
 
@@ -179,7 +201,15 @@ def Kraus_DFG(params=None):
         "runtime": runtime,
     }
 
-    print(f"Found {len(pos_idx)} Kraus operators (kept eigenvalues > {tol}). "
-          f"Trace error ||Sum K†K - I||_F = {trace_error}")
+    print(
+        f"Found {len(pos_idx)} Kraus operators (kept eigenvalues > {tol}). "
+        f"Trace error ||Sum K†K - I||_F = {trace_error}"
+    )
 
-    return Kraus, info, np.array(Populations), np.array(Trace_error), np.array(Trace_rho)
+    return (
+        Kraus,
+        info,
+        np.array(Populations),
+        np.array(Trace_error),
+        np.array(Trace_rho),
+    )
