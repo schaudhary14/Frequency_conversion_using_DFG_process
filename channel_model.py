@@ -80,10 +80,11 @@ def Kraus_DFG(params=None, initial_state: Optional[np.ndarray] = None):
     d = ds * dc
 
     # Initial state
-    if not initial_state:
+    if initial_state is None:
         if coh == 1:
             alpha = signal_photon
             n = np.arange(ds)
+            # I would use scipy.special.factorial instead (future proof)
             coh_s = np.exp(-0.5 * np.abs(alpha) ** 2) * (
                 alpha**n / np.sqrt(np.math.factorial(n))
             )
