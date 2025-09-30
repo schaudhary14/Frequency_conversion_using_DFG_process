@@ -1,11 +1,59 @@
-from typing import Optional
+import traceback
+from typing import Any, Optional, Tuple, List, Dict
 import numpy as np
-import scipy.sparse as sp
-import scipy.sparse.linalg as spla
+import scipy.sparse as sp  # Is this needed
+import scipy.sparse.linalg as spla  # Is this needed
 from scipy.linalg import expm
 
 
-def Kraus_DFG(params=None, initial_state: Optional[np.ndarray] = None):
+# Helpers
+def secondary_kraus(K: np.ndarray, d: int) -> List[np.ndarray]:
+    """
+    Python translation of the MATLAB function secondary_kraus(K, d).
+
+    K : numpy array, shape (d, d)
+    d : integer (dimension)
+
+    Returns
+    -------
+    M_list : list of numpy arrays
+    Mdagger_list : list of numpy arrays
+    """
+    M_list = []
+
+    for mm in range(d):
+        temp = np.zeros((d, d), dtype=complex)
+
+        for i in range(d):
+            for j in range(d):
+                # Create standard basis vectors
+                m = np.zeros(d, dtype=complex)
+                u = np.zeros(d, dtype=complex)
+                v = np.zeros(d, dtype=complex)
+                o = np.zeros(d, dtype=complex)
+
+                m[mm] = 1
+                u[i] = 1
+                v[j] = 1
+                o[0] = 1
+
+                bra = np.kron(m, u).conjugate().T  # row vector
+                ket = np.kron(v, o)  # column vector
+
+                temp += bra @ K @ ket * np.outer(u, v)
+
+        M_list.append(temp)
+    return M_list
+
+
+def Kraus_DFG(params=None, initial_state: Optional[np.ndarray] = None) -> Tuple[
+    List[np.ndarray],
+    List[np.ndarray],
+    Dict[str, Any],
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
     """
     Compute finite-time Kraus operators for chi(2) DFG model.
 
@@ -75,8 +123,10 @@ def Kraus_DFG(params=None, initial_state: Optional[np.ndarray] = None):
     # time_grid = np.linspace(tprop/100, tprop, 100)
 
     # Dimensions
-    ds = Ns + 1
-    dc = Nc + 1
+    # ds = Ns + 1
+    # dc = Nc + 1
+    ds = Ns
+    dc = Nc
     d = ds * dc
 
     # Initial state
@@ -105,7 +155,7 @@ def Kraus_DFG(params=None, initial_state: Optional[np.ndarray] = None):
 
     # Annihilation operator
     def ann(N):
-        return np.diag(np.sqrt(np.arange(1, N + 1)), 1)
+        return np.diag(np.sqrt(np.arange(1, N)), 1)
 
     a_s_single = ann(Ns)
     a_c_single = ann(Nc)
@@ -141,11 +191,17 @@ def Kraus_DFG(params=None, initial_state: Optional[np.ndarray] = None):
 
     L_super = LH + Ldis
 
-    print(f"Dimension d = {d}, superoperator size = {d**2} x {d**2}")
-
     Populations = []
     Trace_rho = []
     Trace_error = []
+    Kraus = []
+
+    # Bind the values, these are overwritten in every step
+    Phi = 0
+    C = 0
+    eigvals = None
+    pos_idx = np.array([])
+    trace_error = 0
 
     for t in time_grid:
         Phi = expm(L_super * t)
@@ -186,8 +242,7 @@ def Kraus_DFG(params=None, initial_state: Optional[np.ndarray] = None):
 
         s_population_K = np.trace(rho_t_Kraus @ (a_s_d @ a_s))
         c_population_K = np.trace(rho_t_Kraus @ (a_c_d @ a_c))
-        Populations.append([s_population, c_population,
-                           s_population_K, c_population_K])
+        Populations.append([s_population, c_population, s_population_K, c_population_K])
 
     runtime = time.time() - t0
 
@@ -195,20 +250,26 @@ def Kraus_DFG(params=None, initial_state: Optional[np.ndarray] = None):
         "Phi": Phi,
         "Choi": C,
         "eigvals": eigvals,
-        "pos_idx": pos_idx,
-        "nK": len(pos_idx),
         "trace_error": trace_error,
-        "d": d,
+        "dimensions": d,
         "runtime": runtime,
+        "operator_num_M": len(Kraus),
+        "operator_num_K": len(Kraus),
     }
 
-    print(
-        f"Found {len(pos_idx)} Kraus operators (kept eigenvalues > {tol}). "
-        f"Trace error ||Sum K†K - I||_F = {trace_error}"
-    )
+    M = []
+    try:
+        for K in Kraus:
+            M.extend(secondary_kraus(K, Nc))
+        info["operator_num_M"] = len(M)
+    except Exception as e:
+        print(f"K.shape={K.shape}", flush=True)
+        print(f"Nc={Nc}", flush=True)
+        traceback.print_exc()
 
     return (
         Kraus,
+        M,
         info,
         np.array(Populations),
         np.array(Trace_error),

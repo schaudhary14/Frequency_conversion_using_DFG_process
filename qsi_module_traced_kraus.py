@@ -7,8 +7,8 @@ from typing import Any, Optional, Dict
 import traceback
 
 from qsi.qsi import QSI
-from qsi.helpers import numpy_to_json, pretty_print_dict
-from qsi.state import State
+from qsi.helpers import numpy_to_json
+from qsi.state import State, StateProp
 import time
 import numpy as np
 
@@ -38,8 +38,7 @@ class Parameters:
         """Transform into dict format expected by Kraus_DFG."""
         d = asdict(self)
         # Replace time_start/stop/steps with actual time vector
-        d["time"] = np.linspace(
-            self.time_start, self.time_stop, int(self.time_steps))
+        d["time"] = np.linspace(self.time_start, self.time_stop, int(self.time_steps))
         # Remove unused keys if needed
         d.pop("time_start", None)
         d.pop("time_stop", None)
@@ -98,8 +97,8 @@ def get_io_from_signals(signals):
 
 def info_minimal(info: dict) -> dict:
     return {
-        "nK": int(info.get("nK", 0)),
-        "d": int(info.get("d", 0)),
+        "operator_num": int(info.get("operator_num_M", 0)),
+        "dimensions": int(info.get("dimensions", 0)),
         "trace_error": float(info.get("trace_error", 0.0)),
         "runtime": float(info.get("runtime", 0.0)),
     }
@@ -139,7 +138,6 @@ def param_set(msg):
     try:
         flat = _extract_param_values(msg["params"])
         PARAMETERS = Parameters(**flat)
-        print(PARAMETERS)
     except Exception as e:
         return {"msg_type": "param_set_response", "message": str(e)}
     return {
@@ -158,38 +156,51 @@ def channel_query(msg):
     # 4. Verify that enough dimensions are present in the state
 
     # Rebuild a full state from the message payload
-    full_state = State.from_message(msg)
+    in_state = State.from_message(msg)
     signals = msg.get("signals", [])
     in_uuid, out_uuid = get_io_from_signals(signals)
-    if not (in_uuid and out_uuid):
+    if not (in_uuid):
+        print(f"{in_uuid}, {out_uuid}", flush=True)
         return {
             "msg_type": "channel_query_response",
-            "message": "Provide input/output UUIDs in 'signals' (e.g."
-            "[{'role': 'input', 'uuid': ...},{'role': 'output', 'uuid': ...}]",
+            "message": "Provide input UUIDs in 'signals' (e.g."
+            "[{'role': 'input', 'uuid': ...}]",
         }
 
-    in_prop = full_state.get_props(in_uuid)
-    out_prop = full_state.get_props(out_uuid)
+    in_prop = in_state.get_props(in_uuid)
 
-    full_state._reorder([in_prop, out_prop])
+    # We create a synthetic state to compute the Kraus
 
-    initial_state = full_state.get_reduced_state([in_prop, out_prop])
-    print(initial_state)
+    synth_state_prop = StateProp(
+        state_type="light",
+        truncation=in_prop.truncation,
+        wavelength=1550,
+        polarization=in_prop.polarization,
+        bandwidth=in_prop.wavelength,
+    )
+    synth_state = State(synth_state_prop)
+
+    # Tensor product the synth state into the given state
+    in_state.join(synth_state)
+    full_state = in_state
+
+    full_state._reorder([in_prop, synth_state_prop])
+
+    initial_state = full_state.get_reduced_state([in_prop, synth_state_prop])
     # Construct the initial state by tracing out the states that do not matter
     # Reshape states so that input is first and output second in the product
 
     # Update the trunctaion in the parameters
-    PARAMETERS.Nc = int(in_prop.truncation) - 1
-    PARAMETERS.Ns = int(in_prop.truncation) - 1
+    PARAMETERS.Ns = int(in_prop.truncation)
+    PARAMETERS.Nc = int(synth_state_prop.truncation)
     try:
-        kraus_list, info, *_ = Kraus_DFG(
+        kraus_list, m_list, info, *_ = Kraus_DFG(
             params=PARAMETERS.to_dict(), initial_state=initial_state
         )
         return {
             "msg_type": "channel_query_response",
-            "kraus_operators": [numpy_to_json(K) for K in kraus_list],
-            # input first, output second
-            "kraus_state_indices": [in_uuid, out_uuid],
+            "kraus_operators": [numpy_to_json(M) for M in m_list],
+            "kraus_state_indices": [in_uuid],
             "error": float(info.get("trace_error", 0.0)),
             "retrigger": False,
             "retrigger_time": 0,

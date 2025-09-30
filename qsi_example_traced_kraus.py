@@ -13,7 +13,7 @@ coordinator = Coordinator()
 
 # Start the module processes, before running the coordinator process
 frequency_conversion = coordinator.register_component(
-    module="qsi_module.py", runtime="python"
+    module="qsi_module_traced_kraus.py", runtime="python"
 )
 
 # Run the coordinator, when the coordinator starts
@@ -32,7 +32,7 @@ frequency_conversion.set_param("time_steps", 5)
 frequency_conversion.send_params()
 
 # --- Build single-mode states ---
-s_in = State(
+signal = State(
     StateProp(
         state_type="light",
         truncation=2,
@@ -41,30 +41,18 @@ s_in = State(
         bandwidth=1.0,
     )
 )
-s_in.state[:] = 0
-s_in.state[1, 1] = 1.0  # |1><1|
-
-s_out = State(
-    StateProp(
-        state_type="light",
-        truncation=2,
-        wavelength=1550.0,
-        polarization="R",
-        bandwidth=1.0,
-    )
-)
-s_in.join(s_out)  # tensor order is [780, 1550]
-composite = s_in
+signal.state[:] = 0
+signal.state[1, 1] = 1.0  # |1><1|
 
 signals = [
     {
-        "input_uuid": composite.state_props[0].uuid,  # 780 nm
-        "output_uuid": composite.state_props[1].uuid,
+        "role": "input",
+        "uuid": signal.state_props[0].uuid,  # 780 nm
     }  # 1550 nm
 ]
 
 response, operators = frequency_conversion.channel_query(
-    composite,
+    signal,
     port_assign=None,
     signals=signals,
 )
@@ -75,12 +63,17 @@ print("INFO")
 print(response["info"])
 
 print("Applying Kraus")
-kraus_spaces = composite.get_all_props(response["kraus_state_indices"])
-# By contract these are [input_uuid, output_uuid]
-composite.apply_kraus_operators(operators, kraus_spaces)
-out_uuid = response["kraus_state_indices"][1]
-out_prop = composite.get_props(out_uuid)
-rho_out = composite.get_reduced_state([out_prop])
+kraus_spaces = signal.get_all_props(response["kraus_state_indices"])
+
+# By contract these are [input_uuid]
+signal.apply_kraus_operators(operators, kraus_spaces)
+out_uuid = response["kraus_state_indices"][0]
+
+prop = signal.get_props(out_uuid)
+prop.wavelength = 1550
+
+out_prop = signal.get_props(out_uuid)
+rho_out = signal.get_reduced_state([out_prop])
 print("Output mode density matrix:\n", rho_out)
 
 
