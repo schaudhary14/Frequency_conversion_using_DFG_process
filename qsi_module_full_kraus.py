@@ -22,8 +22,11 @@ qsi = QSI()
 class Parameters:
     hbar: float
     zi: float
-    kappa_a: float
-    kappa_b: float
+    gamma_s: float
+    gamma_c: float
+    g_sc: float
+    g_Raman_s: float
+    g_Raman_c: float
     tol: float
     coh: float
     time_start: float
@@ -33,6 +36,7 @@ class Parameters:
     Nc: int = 6
     signal_photon: int = 1
     convsn_photon: int = 0
+    
 
     def to_dict(self) -> dict:
         """Transform into dict format expected by Kraus_DFG."""
@@ -98,8 +102,8 @@ def get_io_from_signals(signals):
 def info_minimal(info: dict) -> dict:
     return {
         "operator_num": int(info.get("operator_num_K", 0)),
-        "dimensions": int(info.get("dimensions", 0)),
-        "trace_error": float(info.get("trace_error", 0.0)),
+        "dimensions": int(info.get("dimensions_K", 0)),
+        "norm_error": float(info.get("norm_error", 0.0)),
         "runtime": float(info.get("runtime", 0.0)),
     }
 
@@ -121,13 +125,17 @@ def param_query(msg):
             "Nc": "number",
             "hbar": "number",
             "zi": "number",
-            "kappa_a": "number",
-            "kappa_b": "number",
+            "gamma_s": "number",
+            "gamma_c": "number",
+            "g_sc": "number",
+            "g_Raman_s": "number",
+            "g_Raman_c": "number",
             "tol": "number",
             "coh": "number",
             "time_start": "number",
             "time_stop": "number",
             "time_steps": "number",
+            
         },
     }
 
@@ -179,12 +187,13 @@ def channel_query(msg):
     PARAMETERS.Nc = int(in_prop.truncation)
     PARAMETERS.Ns = int(in_prop.truncation)
     try:
-        kraus_list, m_list, info, *_ = Kraus_DFG(
+        kraus_list, m_list, info, fidelity, *_ = Kraus_DFG(
             params=PARAMETERS.to_dict(), initial_state=initial_state
         )
         return {
             "msg_type": "channel_query_response",
             "kraus_operators": [numpy_to_json(K) for K in kraus_list],
+            "Fidelity": fidelity,
             "kraus_state_indices": [in_uuid, out_uuid],
             "error": float(info.get("trace_error", 0.0)),
             "retrigger": False,

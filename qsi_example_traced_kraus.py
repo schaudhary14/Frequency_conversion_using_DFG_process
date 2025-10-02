@@ -9,7 +9,7 @@ from qsi.state import State, StateProp
 
 
 # Initiate the Coordinator
-coordinator = Coordinator()
+coordinator = Coordinator(8474)
 
 # Start the module processes, before running the coordinator process
 frequency_conversion = coordinator.register_component(
@@ -23,11 +23,15 @@ frequency_conversion.set_param("hbar", 1.0)
 frequency_conversion.set_param("zi", 1.0)
 frequency_conversion.set_param("kappa_a", 0.01)
 frequency_conversion.set_param("kappa_b", 0.001)
+frequency_conversion.set_param("g_sc", 0.8)
+frequency_conversion.set_param("g_Raman_s", 1e-5)
+frequency_conversion.set_param("g_Raman_c", 1e-4)
 frequency_conversion.set_param("tol", 1e-12)
 frequency_conversion.set_param("coh", 0)
 frequency_conversion.set_param("time_start", 0)
 frequency_conversion.set_param("time_stop", 50)
 frequency_conversion.set_param("time_steps", 5)
+
 
 frequency_conversion.send_params()
 

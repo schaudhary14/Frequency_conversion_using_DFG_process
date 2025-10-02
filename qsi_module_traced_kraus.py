@@ -22,8 +22,11 @@ qsi = QSI()
 class Parameters:
     hbar: float
     zi: float
-    kappa_a: float
-    kappa_b: float
+    gamma_s: float
+    gamma_c: float
+    g_sc: float
+    g_Raman_s: float
+    g_Raman_c: float
     tol: float
     coh: float
     time_start: float
@@ -98,8 +101,8 @@ def get_io_from_signals(signals):
 def info_minimal(info: dict) -> dict:
     return {
         "operator_num": int(info.get("operator_num_M", 0)),
-        "dimensions": int(info.get("dimensions", 0)),
-        "trace_error": float(info.get("trace_error", 0.0)),
+        "dimensions": int(info.get("dimensions_M", 0)),
+        "norm_error": float(info.get("norm_error", 0.0)),
         "runtime": float(info.get("runtime", 0.0)),
     }
 
@@ -121,8 +124,11 @@ def param_query(msg):
             "Nc": "number",
             "hbar": "number",
             "zi": "number",
-            "kappa_a": "number",
-            "kappa_b": "number",
+            "gamma_s": "number",
+            "gamma_c": "number",
+            "g_sc": "number",
+            "g_Raman_s": "number",
+            "g_Raman_c": "number",
             "tol": "number",
             "coh": "number",
             "time_start": "number",
@@ -194,14 +200,15 @@ def channel_query(msg):
     PARAMETERS.Ns = int(in_prop.truncation)
     PARAMETERS.Nc = int(synth_state_prop.truncation)
     try:
-        kraus_list, m_list, info, *_ = Kraus_DFG(
+        kraus_list, m_list, info, fidelity, *_ = Kraus_DFG(
             params=PARAMETERS.to_dict(), initial_state=initial_state
         )
         return {
             "msg_type": "channel_query_response",
             "kraus_operators": [numpy_to_json(M) for M in m_list],
+            "Fidelity": fidelity,
             "kraus_state_indices": [in_uuid],
-            "error": float(info.get("trace_error", 0.0)),
+            "error": float(info.get("norm_error", 0.0)),
             "retrigger": False,
             "retrigger_time": 0,
             "info": info_minimal(info),
